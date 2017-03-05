@@ -1,5 +1,6 @@
 #include <PID_v1.h>
 #include <DroneMotor.h>
+#include <DroneCom.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BNO055.h>
@@ -35,7 +36,7 @@ double cKpYaw=1, cKiYaw=0.05, cKdYaw=0.25;
 
 void pidSetup();
 void updatePID();
-
+void setTunningsFromSring(int axis, String str);
 // PID inits
 PID rPID(&actualRoll, &msRoll, &desiredRoll, cKpRoll, cKiRoll, cKdRoll, DIRECT);
 PID pPID(&actualPitch, &msPitch, &desiredPitch, cKpPitch, cKiPitch, cKdPitch, DIRECT);
@@ -48,31 +49,48 @@ Adafruit_BNO055 bno = Adafruit_BNO055(55);
 
 void imuSetup();
 void updateIMU();
+///////////////////////////////////////COMM  stuff/////////////////////////////////////
+DroneCom comm;
+void check4Incoming();
+void check4Outgoing();
+
 ///////////////////////////////////////////////////////////////////////////////////////
 /************************************SETUP********************************************/
 ///////////////////////////////////////////////////////////////////////////////////////
 void setup() {
-  Serial.begin(115200);
-  // put your setup code here, to run once:
+  comm.init();
+  //Serial.println("Communication setup finished");
   m1.setupMotor();
   m2.setupMotor();
   m3.setupMotor();
   m4.setupMotor();
   mspeed = 0.00;
+  //Serial.println("Motor setup finished");
   pidSetup();
-  Serial.println("PID setup finished");
+  //Serial.println("PID setup finished");
   imuSetup();
-  Serial.println("IMU setup finished");
-  
-  
+  //Serial.println("IMU setup finished");
 }
 ///////////////////////////////////////////////////////////////////////////////////////
 /************************************LOOP ********************************************/
 ///////////////////////////////////////////////////////////////////////////////////////
 void loop() {
-  // put your main code here, to run repeatedly:
+  // UPDATE TIME
+  pTime = cTime;
+  cTime = millis();
+  dTime = cTime-pTime;
+  /////////////////////////////////////////////IMU/////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////////////////
   updateIMU();
+  /////////////////////////////////////////////PID/////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////////////////
   updatePID();
+  /////////////////////////////////////////////MOTORS/////////////////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////////////////
+  m1.setSpeed(mspeed - msPitch - msRoll);
+  m2.setSpeed(mspeed + msPitch - msRoll);
+  m3.setSpeed(mspeed - msPitch + msRoll);
+  m4.setSpeed(mspeed + msPitch + msRoll);
   //m1.setSpeed(mspeed-msRoll);
   //m2.setSpeed(mspeed-msRoll);
   //m3.setSpeed(mspeed+msRoll);
@@ -81,14 +99,14 @@ void loop() {
   //m2.setSpeed(mspeed+msPitch);
   //m3.setSpeed(mspeed-msPitch);
   //m4.setSpeed(mspeed+msPitch);
-
-  m1.setSpeed(mspeed - msPitch - msRoll);
-  m2.setSpeed(mspeed + msPitch - msRoll);
-  m3.setSpeed(mspeed - msPitch + msRoll);
-  m4.setSpeed(mspeed + msPitch + msRoll);
-  
+  /////////////////////////////////////////////COMMUNICATION//////////////////////////////////
+  //////////////////////////////////////////////////////////////////////////////////////////
+  check4Incoming();
+  check4Outgoing();
 }
-
+///////////////////////////////////////////////////////////////////////////////////////
+/************************************PID METHODS**************************************/
+///////////////////////////////////////////////////////////////////////////////////////
 void pidSetup()
 {
   // SETTING FOR UNINIT GLOBAL PID VARIABLES
@@ -117,34 +135,28 @@ void updatePID()
   double pDiff = abs(desiredPitch - actualPitch);
   double yDiff = abs(desiredYaw - actualYaw);
   // UPDATING THE TUNNING VALUES;
-  if(rDiff < 10.0) rPID.SetTunings(cKpRoll, cKiRoll, cKdRoll);
+  /*if(rDiff < 10.0) rPID.SetTunings(cKpRoll, cKiRoll, cKdRoll);
   else rPID.SetTunings(aKpRoll, aKiRoll, aKdRoll);
   
   if(rDiff < 10.0) rPID.SetTunings(cKpRoll, cKiRoll, cKdRoll);
   else rPID.SetTunings(aKpRoll, aKiRoll, aKdRoll);
   
   if(rDiff < 10.0) rPID.SetTunings(cKpRoll, cKiRoll, cKdRoll);
-  else rPID.SetTunings(aKpRoll, aKiRoll, aKdRoll);
+  else rPID.SetTunings(aKpRoll, aKiRoll, aKdRoll);*/
   // COMPUTING PID OUTPUT;
   rPID.Compute();
   pPID.Compute();
   yPID.Compute();
   
 }
+///////////////////////////////////////////////////////////////////////////////////////
+/************************************IMU METHODS**************************************/
+///////////////////////////////////////////////////////////////////////////////////////
 void imuSetup()
 {
   bno.begin();
   sensor_t sensor;
   bno.getSensor(&sensor);
-  Serial.println("------------------------------------");
-  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
-  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
-  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
-  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" xxx");
-  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" xxx");
-  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" xxx");
-  Serial.println("------------------------------------");
-  Serial.println("");
   delay(500);
   sensors_event_t event;
   bno.getEvent(&event);
@@ -163,6 +175,120 @@ void updateIMU()
   actualRoll = event.orientation.y;
   actualPitch = event.orientation.z;
   actualYaw = event.orientation.x;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+/************************************COMM METHODS**************************************/
+///////////////////////////////////////////////////////////////////////////////////////
+void check4Incoming()
+{
+  //Serial.println("checking incoming");
+  comm.updateRXMsg();
+  if(comm.checkInFlag() == true)
+  {
+      //Serial.println("incoming message is true");
+      // checking if orientation or position PID
+      if(comm.OriMsgIn == true)
+      {
+        // checking if Roll Pitch or Yaw is recieved
+        if(comm.RollMsgIn == true)
+        {
+          // checking if P||I||D is recieved
+          if(comm.PMsgIn == true)
+          {
+            //Set P value
+            String str = comm.getPIDMsgVal();
+            aKpRoll = str.toFloat();
+          }
+          else if(comm.IMsgIn == true)
+          {
+            //Set I value
+            String str = comm.getPIDMsgVal();
+            aKiRoll = str.toFloat();
+          }
+          else if(comm.DMsgIn == true)
+          {
+            //Set D value
+            String str = comm.getPIDMsgVal();
+            aKdRoll = str.toFloat();
+          }
+          // update the orientation PID vals
+          rPID.SetTunings(aKpRoll, aKiRoll, aKdRoll);
+          
+        }
+        else if(comm.PitchMsgIn == true)
+        {
+          // checking if P||I||D is recieved
+          if(comm.PMsgIn == true)
+          {
+            //Set P value
+            String str = comm.getPIDMsgVal();
+            aKpPitch = str.toFloat();
+          }
+          else if(comm.IMsgIn == true)
+          {
+            //Set I value
+            String str = comm.getPIDMsgVal();
+            aKiPitch = str.toFloat();
+          }
+          else if(comm.DMsgIn == true)
+          {
+            //Set D value
+            String str = comm.getPIDMsgVal();
+            aKdPitch = str.toFloat();
+          }
+          // update the orientation PID vals
+          pPID.SetTunings(aKpPitch, aKiPitch, aKdPitch);
+        }
+        else if(comm.YawMsgIn == true)
+        {
+          // checking if P||I||D is recieved
+          if(comm.PMsgIn == true)
+          {
+            //Set P value
+            String str = comm.getPIDMsgVal();
+            aKpYaw = str.toFloat();
+          }
+          else if(comm.IMsgIn == true)
+          {
+            //Set I value
+            String str = comm.getPIDMsgVal();
+            aKiYaw = str.toFloat();
+          }
+          else if(comm.DMsgIn == true)
+          {
+            //Set D value
+            String str = comm.getPIDMsgVal();
+            aKdYaw = str.toFloat();
+          }
+          // update the orientation PID vals
+          yPID.SetTunings(aKpYaw, aKiYaw, aKdYaw);
+        }
+      }
+
+      //Serial.println("checked for ori input");
+      if(comm.PosMsgIn == true)
+      {
+        //Serial.println("orientation PID value in");
+        comm.resetFlags();
+      }
+      //Serial.println("checked for Pos input");
+      if(comm.DestMsgIn == true)
+      {
+        //Serial.println("destination values in");
+        comm.resetFlags();
+      }
+      //Serial.println("done checking incoming");
+  }
+      
+}
+void check4Outgoing()
+{
+
+  //TODO: OUTPUT ORIENTATION AND POSITION MESSAGES OUT TO COORDINATE
+  //Serial.println("output Orientation");
+  comm.sendOrientation(actualRoll, actualPitch, actualYaw);
+  //comm.transmit2Coor("hello");
 }
 
 
