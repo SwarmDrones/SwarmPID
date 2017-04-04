@@ -11,11 +11,11 @@ double counter = 0;
 double cTime = 0.00, pTime = 0.00, dTime = 0.00,iTime = 0.00; // current, previous, delta time, integrated times
 
 ///////////////////////////////////////motors stuff///////////////////////////////c////////
-DroneMotor m1(5, 16, 21);  // back left
-DroneMotor m2(A7, 16, 21); // front left
-DroneMotor m3(6, 16, 21);  // back right
-DroneMotor m4(A6, 16, 21); // front right
-double mspeed = 60.0;
+DroneMotor m1(5, 117, 243);//16,21  // back left
+DroneMotor m2(A7, 117, 243); // front left
+DroneMotor m3(6, 117, 243);  // back right
+DroneMotor m4(A6, 117, 243); // front right
+double mspeed = 30.0;
 
 ///////////////////////////////////////PID stuff/////////////////////////////////////
 double desiredRoll, desiredPitch, desiredYaw;// setpoint
@@ -72,6 +72,7 @@ void setup() {
   m2.setupMotor();
   m3.setupMotor();
   m4.setupMotor();
+  
   //mspeed = 0.00;
   //Serial.println("Motor setup finished");
   pidSetup();
@@ -96,18 +97,17 @@ void loop() {
   updatePID();
   /////////////////////////////////////////////MOTORS/////////////////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////////////////
-  m1.setSpeed(mspeed - msPitch - msRoll);
-  m2.setSpeed(mspeed + msPitch - msRoll);
-  m3.setSpeed(mspeed - msPitch + msRoll);
-  m4.setSpeed(mspeed + msPitch + msRoll);
-  //m1.setSpeed(mspeed-msRoll);
-  //m2.setSpeed(mspeed-msRoll);
-  //m3.setSpeed(mspeed+msRoll);
-  //m4.setSpeed(mspeed+msRoll);
-  //m1.setSpeed(mspeed-msPitch);
-  //m2.setSpeed(mspeed+msPitch);
-  //m3.setSpeed(mspeed-msPitch);
-  //m4.setSpeed(mspeed+msPitch);
+  // x configuration
+  //m1.setSpeed(mspeed - msPitch - msRoll);
+  //m2.setSpeed(mspeed + msPitch - msRoll);
+  //m3.setSpeed(mspeed - msPitch + msRoll);
+  //m4.setSpeed(mspeed + msPitch + msRoll);
+  // + configuration
+  m1.setSpeed(mspeed + msRoll);
+  m2.setSpeed(mspeed - msPitch);
+  m3.setSpeed(mspeed - msRoll);
+  m4.setSpeed(mspeed + msPitch);
+  
   /////////////////////////////////////////////COMMUNICATION//////////////////////////////////
   //////////////////////////////////////////////////////////////////////////////////////////
   check4Incoming();
@@ -275,7 +275,7 @@ void check4Incoming()
             //Set P value
             str = comm.getPIDMsgVal();
             aKpYaw = str.toFloat();
-            Serial.print("set Yaw ori P value: ");
+            Serial.print(F("set Yaw ori P value: "));
             Serial.println(str);
           }
           else if(comm.IMsgIn == true)
@@ -283,7 +283,7 @@ void check4Incoming()
             //Set I value
             str = comm.getPIDMsgVal();
             aKiYaw = str.toFloat();
-            Serial.print("set Yaw ori I value: ");
+            Serial.print(F("set Yaw ori I value: "));
             Serial.println(str);
           }
           else if(comm.DMsgIn == true)
@@ -291,14 +291,14 @@ void check4Incoming()
             //Set D value
             str = comm.getPIDMsgVal();
             aKdYaw = str.toFloat();
-            Serial.print("set Yaw ori D value: ");
+            Serial.print(F("set Yaw ori D value: "));
             Serial.println(str);
           }
           // update the orientation PID vals
           yPID.SetTunings(aKpYaw, aKiYaw, aKdYaw);
         }
+        comm.resetFlags();
       }
-
       //Serial.println("checked for ori input");
       if(comm.PosMsgIn == true)
       {
@@ -306,6 +306,12 @@ void check4Incoming()
         comm.resetFlags();
       }
       //Serial.println("checked for Pos input");
+      if(comm.ThrottleMsgIn == true)
+      {
+        str = comm.getThrottleMsgVal();
+        mspeed = str.toFloat();
+        comm.resetFlags();
+      }
       if(comm.DestMsgIn == true)
       {
         //Serial.println("destination values in");
